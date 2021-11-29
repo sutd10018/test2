@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Volume (integral)</title>
+  <script src="js/mathbox-bundle.js"></script>
+  <script src="js/dat.gui.js"></script>
+  <script src="js/datguivr.js"></script>
+  
+  <!-- http://silentmatt.com/javascript-expression-evaluator/ -->
+  <script src="js/parser.js"></script>
+
+  <link rel="stylesheet" href="css/mathbox.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  <style>
+	#bgcolor {
+		height: 97vh;
+		background: rgb(22,73,125);
+		background: linear-gradient(90deg, rgba(22,73,125,1) 0%, rgba(11,11,38,1) 50%, rgba(22,73,125,1) 100%);
+		align: center;
+	}
+</style>
+</head>
+<body>
+<div id="bgcolor">
+
+<script>
+    var element =  document.querySelector('#bgcolor');
+	
+	mathbox = mathBox({ element: element,
+      plugins: ['VR', 'ui', 'controls'],
+      controls: {
+        klass: THREE.VRControls
+      },
+    });
+    if (mathbox.fallback) throw "WebGL not supported"
+
+	var graphData, view;
+	
+	var functionText = "x^2-y^2";
+
+	
+	var	xMin = -5, xMax = 5, yMin = -5,	yMax = 5, zMin = -3, zMax = 3;
+	
+	var zAutofit = true;
+	
+	var numPrisms = 4;
+	var xLower = 0, xUpper = 2, yLower = 0, yUpper = 2;
+	
+	// start of displayGraph function ==============================================================
+	var displayGraphFunc = function() 
+	{ 
+		var zFunc = Parser.parse( functionText ).toJSFunction( ['x','y'] );
+		graphData.set("expr", 
+		    function (emit, x, y, i, j, t) 
+			{ 
+			    emit( x, zFunc(x,y), y );
+			}
+		);
+		
+		if (zAutofit)
+		{
+			var xStep = (xMax - xMin) / 256;
+			var yStep = (yMax - yMin) / 256;
+			var zSmallest = zFunc(xMin, yMin);
+			var zBiggest  = zFunc(xMin, yMin);
+			for (var x = xMin; x <= xMax; x += xStep)
+			{
+				for (var y = yMin; y <= yMax; y += yStep)
+				{
+					var z = zFunc(x,y);
+					if (z < zSmallest) zSmallest = z;
+					if (z > zBiggest)  zBiggest  = z;
+				}
+			}
+			zMin = zSmallest;
+			zMax = zBiggest;
+		}
+		
+	
+		view.set("range", [[xMin, xMax], [zMin,zMax], [yMin, yMax]]); 
+		
+		//set the graph color to rainbow that dynamically changes with value
+		//use HSL so it's easier to scale (use percent) instead of RGB
+		graphColors.set("expr", 
+				function (emit, x, y, i, j, t) 
+				{ 
+					var z = zFunc(x,y);
+					var percent = (z - 1.2 * zMin) / (zMax - 1.2 * zMin);
+					var color = new THREE.Color( 0xffffff );
+					color.setHSL( 1-percent, 1, 0.5 );
+					emit( color.r, color.g, color.b, 0.7 ); //last one is the alpha (transparency) setting
+				}
+			);	
+
+		
+	}
+	
+	// end of displayGraph function ==============================================================
+	
+	// start of displayBox function ===
+	
+	var displayBoxFunc = function ()
+	{
+		zFunc = Parser.parse( functionText ).toJSFunction( ['x','y'] );
+		
+		shapeDataTop.set("width", numPrisms);
+		shapeDataTop.set("height", numPrisms);  		
+		shapeDataBottom.set("width", numPrisms);
+		shapeDataBottom.set("height", numPrisms);  		
+		shapeDataSides.set("width", numPrisms);
+		shapeDataSides.set("height", numPrisms);  		
+		shapeDataSides2.set("width", numPrisms);
+		shapeDataSides2.set("height", numPrisms);  	
+		// seems to have no effect when decreasing width value. bug?
+		//boxColors.set("width", numPrisms);
+		//boxColors.set("height", numPrisms);  	
+		
+		originX = xLower;
+		deltaX = (xUpper - xLower)/numPrisms;
+		originY = yLower;
+		deltaY = (yUpper - yLower)/numPrisms;
+		var dataTop = [];
+		var dataBottom = [];
+		var dataSides = [];
+		var dataSides2 = [];
+		for (var x = originX; x < xUpper; x += deltaX)
+		{
+			for(var y = originY; y < yUpper; y += deltaY)
+			{
+				var z = zFunc(x,y);
+				var p0 = [x,z,y];
+				var p1 = [x+deltaX,z,y];
+				var p2 = [x,z,y+deltaY];
+				var p3 = [x+deltaX,z,y+deltaY];
+				var p4 = [x,0,y];
+				var p5 = [x+deltaX,0,y];
+				var p6 = [x,0,y+deltaY];
+				var p7 = [x+deltaX,0,y+deltaY];
+				dataTop.push(p0,p1,p3,p2,p0);
+				dataBottom.push(p4,p5,p7,p6,p4);
+				dataSides.push(p0,p1,p5,p4,p0);
+				dataSides.push(p0,p2,p6,p4,p0);
+				dataSides2.push(p3,p1,p5,p7,p3);
+				dataSides2.push(p3,p2,p6,p7,p3);
+			}
+		}
+		shapeDataTop.set("data", dataTop);
+		shapeDataBottom.set("data", dataBottom);
+		shapeDataSides.set("data", dataSides);
+		shapeDataSides2.set("data", dataSides2);
+		
+		/*
+		// works
+		boxColors.set("expr", 
+			function(emit, i,j, time)
+			{
+				var xx = originX + i * deltaX;
+				var yy = originY + j * deltaY;
+				var zz = zFunc(yy,xx);
+					
+				var percent = (zz - 1.2 * zMin) / (zMax - 1.2 * zMin);
+				var color = new THREE.Color( 0xffffff );
+				color.setHSL( 1-percent, 1, 0.5 );
+				emit( color.r, color.g, color.b, 1.0 );
+			}
+		);
+		*/
+		
+	}
+	
+	var displayGraph = function() { displayGraphFunc(); };
+	var displayBox = function() { displayBoxFunc(); };
+
+	
+	// setting proxy:true allows interactive controls to override base position
+	var camera = mathbox.camera( { proxy: true, position: [4,2,4] } );
+
+	 // save as variable to adjust later
+    view = mathbox.cartesian(
+	  {
+        range: [[xMin, xMax], [yMin, yMax], [zMin,zMax]],
+		//scale for y axis - here in z, should be negative since original mathbox yAxis (on z) is flipped
+        scale: [2,1,-2],
+      }
+	);
+
+	// axes
+	var xAxis = view.axis( {axis: 1, width: 8, detail: 40, color:"deeppink"} );
+    var xScale = view.scale( {axis: 1, divide: 5, nice:true, zero:true} );
+    var xTicks = view.ticks( {width: 5, size: 15, color: "deeppink", zBias:2} );
+    var xFormat = view.format( {digits: 2, font:"Helvetica", style: "normal", source: xScale} );
+    var xTicksLabel = view.label( {color: "deeppink", zIndex: 0, offset:[0,-20], outline: 0, size: 14, points: xScale, text: xFormat} );
+	
+	var yAxis = view.axis( {axis: 3, width: 8, detail: 40, color:"greenyellow"} );
+    var yScale = view.scale( {axis: 3, divide: 5, nice:true, zero:false} );
+    var yTicks = view.ticks( {width: 5, size: 15, color: "greenyellow", zBias:2} );
+    var yFormat = view.format( {digits: 2, font:"Helvetica", style: "normal", source: yScale} );
+    var yTicksLabel = view.label( {color: "greenyellow", zIndex: 0, offset:[0,-20], outline: 0, size: 14, points: yScale, text: yFormat} );
+	
+	var zAxis = view.axis( {axis: 2, width: 8, detail: 40, color:"cyan"} );
+    var zScale = view.scale( {axis: 2, divide: 5, nice:true, zero:false} );
+    var zTicks = view.ticks( {width: 5, size: 15, color: "cyan", zBias:2} );
+    var zFormat = view.format( {digits: 2, font:"Helvetica", style: "normal", source: zScale} );
+    var zTicksLabel = view.label( {color: "cyan", zIndex: 0, offset:[20,0], outline: 0, size: 14, points: zScale, text: zFormat} );
+	
+	// axis end labels (x, y only)
+	var xLabelText = view.text( {width:1, data:["x"], font: "Helvetica", style: "normal"} );
+	var xLabelPoint = view.array( {width:1, channels:3, data:[ [xMax,0,0] ]} );
+	var xLabelDisplay = view.label( {text: xLabelText, points: xLabelPoint,
+      size: 18, color: "deeppink", outline: 0, offset: [20, 10], zIndex: 1} );
+	  
+	var yLabelText = view.text( {width:1, data:["y"], font: "Helvetica", style: "normal"} );
+	var yLabelPoint = view.array( {width:1, channels:3, data:[ [0,0,yMax] ]} );
+	var yLabelDisplay = view.label( {text: yLabelText, points: yLabelPoint,
+      size: 18, color: "greenyellow", outline: 0, offset: [-10, 20], zIndex: 1} );
+	  
+	
+	view.grid( {axes:[1,3], width: 2, divideX: 20, divideY: 20, opacity:0.25} );
+	
+	var graphData = view.area({
+		axes: [1,3], channels: 3, width: 64, height: 64,
+        expr: function (emit, x, y, i, j, t)
+		{
+		  var z = x*y;
+          emit( x, z, y );
+        },
+    });
+	
+	// actual emitter set later.
+	var graphColors = view.area({
+		expr: function (emit, x,y, i,j, t) 
+		{
+			if (x < 0)
+				emit(1.0, 0.0, 0.0, 1.0);
+		    else
+				emit(0.0, 1.0, 0.0, 1.0);
+		},
+		axes: [1,3],
+		width:  64, height: 64,
+		channels: 4, // RGBA
+    });
+		
+		
+
+	// create graph in two parts, because want solid and wireframe to be different colors
+	// shaded:false for a solid color (curve appearance provided by mesh)
+	// width: width of line mesh
+	// note: colors will mult. against color value, so set color to white (#FFFFFF) to let colors have complete control.
+	
+	
+	var graphViewSolid = view.surface({
+		points:graphData, 
+		color:"#FFFFFF", shaded:false, fill:true, lineX:false, lineY:false, colors:graphColors, visible:true, width:0
+	});
+	
+	// RIEMANN PRISMS
+	
+	var shapeDataTop = view.matrix({
+	    width: numPrisms, height: numPrisms,
+		// expr: initialized later
+		items: 5, // need 5 points for closed path around rectangle
+		channels: 3,
+	});
+ 
+	var shapeDataBottom = view.matrix({
+	    width: numPrisms, height: numPrisms,
+		items: 5, channels: 3,
+	});
+	
+	var shapeDataSides = view.matrix({
+	    width: numPrisms, height: numPrisms,
+		items: 10, channels: 3,
+	});
+	
+	var shapeDataSides2 = view.matrix({
+	    width: numPrisms, height: numPrisms,
+		items: 10, channels: 3,
+	});
+	
+	/*
+	var boxColors = view.matrix({
+		width: numPrisms, height: numPrisms,
+		// expr: function(emit, i,j, time)
+ 		channels: 4, // RGBA
+    });
+	*/
+	
+	// remember to set ""color"" to white because ""colors"" tints
+	var shapeViewTopFill = view.face({
+		points: shapeDataTop,
+		line: false, fill: true, color: "white", 
+	});
+	var shapeViewTopLine = view.face({
+		points: shapeDataTop,
+		line: true,	fill: false,
+		color: "black",	width: 1, opacity: 1.00, stroke: "solid",
+	});
+	
+	var shapeViewBottomFill = view.face({
+		points: shapeDataBottom,
+		line: false, fill: true, color: "white",
+	});
+	
+	var shapeViewSides = view.face({
+		points: shapeDataSides,
+		line: false, fill: true, color: "gray"
+	});
+	var shapeViewSidesLine = view.face({
+		points: shapeDataSides,
+		line: true,	fill: false,
+		color: "black",	width: 1, opacity: 1.00, stroke: "solid",
+	});
+	
+	var shapeViewSides2 = view.face({
+		points: shapeDataSides2,
+		line: false, fill: true, color: "gray"
+	});
+	var shapeViewSides2Line = view.face({
+		points: shapeDataSides2,
+		line: true,	fill: false,
+		color: "black",	width: 1, opacity: 1.00, stroke: "solid",
+	});
+		
+    // GUI controls
+	
+	var gui = new dat.GUI();
+	
+	gui.add( this, 'functionText' ).name('z = f(x,y) = ');
+	gui.add( this, 'displayGraph' ).name("Update Graph");
+	
+	gui.add( this, 'xLower').min(xMin).max(-0.01).step(1).name('lower x = ').onChange(displayBoxFunc);
+	gui.add( this, 'xUpper').min(0.01).max(xMax).step(1).name('upper x = ').onChange(displayBoxFunc);
+	gui.add( this, 'yLower').min(yMin).max(-0.01).step(1).name('lower y = ').onChange(displayBoxFunc);
+	gui.add( this, 'yUpper').min(0.01).max(yMax).step(1).name('upper y = ').onChange(displayBoxFunc);
+	
+	gui.add( this, 'numPrisms').min(4).max(20).step(1).name('Num of prisms = ').onChange(displayBoxFunc);
+	
+	//gui.add( this, 'numPrisms' ).name('Num of prisms').onChange(displayBoxFunc);
+
+	displayGraphFunc();
+	displayBoxFunc();
+
+	
+	</script>
+
+</div>
+</body>
+</html>
